@@ -60,7 +60,8 @@ NAA_re$recruit_pars = exp(10) #initial guess for mean recruitment
 ecov <- list(
   label = "AMO",
   mean = as.matrix(AMO$mean),
-  logsigma = as.matrix(AMO$se_scaled),
+  # logsigma = as.matrix(AMO$se_scaled), # For artificially scaled down standard errors
+  logsigma = as.matrix(AMO$se), # For SEs used in WG run 43
   year = as.numeric(AMO$Year),
   use_obs = matrix(c(FALSE, FALSE, FALSE, rep(TRUE, nrow(AMO)-3)), ncol = 1, nrow=nrow(AMO)), # use all obs except the first 3 (no data 1979, 1980, and 1981 not full year of data in 1981) 
   lag = 1, # AMO anomaly in year t impact R in year t+1

@@ -26,9 +26,9 @@ asap3 <- read_asap3_dat(paste(here::here(), "data", "PlaiceWHAM-2019_revised_NEF
 # Load and filter environmental data to match year range of other model data
 AMO <- read.csv(paste(here::here(), "data", "AMO_se.csv", sep="/"))
 # Add placeholder for missing years of data
-AMO <- rbind(c(1981, -999, -999, -999, -999), AMO) # 1981 years in the wrong order will cause R to bomb
-AMO <- rbind(c(1980, -999, -999, -999, -999), AMO) # 1980
-AMO <- rbind(c(1979, -999, -999, -999, -999), AMO) # 1979
+AMO <- rbind(c(1981, 1, 1, 1, 1), AMO) # 1981 years in the wrong order will cause R to bomb
+AMO <- rbind(c(1980, 1, 1, 1, 1), AMO) # 1980
+AMO <- rbind(c(1979, 1, 1, 1, 1), AMO) # 1979
 ```
 
 ### Artificially decrease the scale of the standard error
@@ -61,7 +61,7 @@ ecov <- list(
   label = "AMO",
   mean = as.matrix(AMO$mean),
   # logsigma = as.matrix(AMO$se_scaled), # For artificially scaled down standard errors
-  logsigma = as.matrix(AMO$se), # For SEs used in WG run 43
+  logsigma = as.matrix(log(AMO$se)), # For SEs used in WG run 43
   year = as.numeric(AMO$Year),
   use_obs = matrix(c(FALSE, FALSE, FALSE, rep(TRUE, nrow(AMO)-3)), ncol = 1, nrow=nrow(AMO)), # use all obs except the first 3 (no data 1979, 1980, and 1981 not full year of data in 1981) 
   lag = 1, # AMO anomaly in year t impact R in year t+1
@@ -110,6 +110,24 @@ saveRDS(input, file=here::here("PlaiceMSE", "Diagnostic_development", "Debug_R-A
 
 ### Fit model, check convergence, and run diagnostics
 ```{r}
+WHAM_debugRAMO <- fit_wham(input, do.osa = FALSE, do.retro = FALSE) 
+x = make_osa_residuals(WHAM_debugRAMO) #new wham function that can do add osa residuals for a fitted model.
+# y = TMB::oneStepPredict(WHAM_debugRAMO, method = "oneStepGaussian", observation.name = "obsvec", data.term.indicator = "keep", discrete=F)
+# ss = input$data$keep_E+1
+# ss = ss[!is.na(ss)]
+# source("c:/work/wham/wham/sandbox/tmbprofile.R")
+# source("c:/work/wham/wham/sandbox/validation.R")
+# x$env$map$Ecov_obs_logsigma
+# y = oneStepPredict(x, method = "oneStepGeneric", subset = 1, observation.name = "obsvec", data.term.indicator = "keep", discrete=F, trace = 2)
+# y = oneStepPredict(x, method = "oneStepGeneric", subset = ss[1:2], observation.name = "obsvec", data.term.indicator = "keep", discrete=F, trace = 2)
+# y = TMB::oneStepPredict(x, method = "oneStepGaussian", subset = 1:40, observation.name = "obsvec", data.term.indicator = "keep", discrete=F, trace = 2)
+# z = TMB::oneStepPredict(x, method = "oneStepGaussianOffMode", subset = 1:40, observation.name = "obsvec", data.term.indicator = "keep", discrete=F, trace = 2)
+# cbind(y$residual, z$residual,x$osa$residual[1:40])
+# y = TMB::oneStepPredict(WHAM_debugRAMO, method = "oneStepGeneric", subset = 1:40, 
+#   observation.name = "obsvec", data.term.indicator = "keep", 
+#   range = c(-Inf, Inf),
+#   discrete=F, trace = 2)
+plot_wham_output(mod=x, out.type='html', dir.main = here::here("PlaiceMSE", "Diagnostic_development", "Debug_R-AMO"))
 WHAM_debugRAMO <- fit_wham(input, do.osa = TRUE, do.retro = TRUE) 
 check_convergence(WHAM_debugRAMO)
 print(paste("Number of parameters", length(WHAM_debugRAMO$par), sep=" "))

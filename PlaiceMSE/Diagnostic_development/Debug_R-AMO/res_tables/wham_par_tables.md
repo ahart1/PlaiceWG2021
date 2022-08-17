@@ -433,17 +433,17 @@ header-includes:
   </tr>
   <tr>
    <td style="text-align:left;"> Ecov AMO: Ecov$_1$ </td>
-   <td style="text-align:right;"> 0.033 </td>
-   <td style="text-align:right;"> 0.165 </td>
-   <td style="text-align:right;"> -0.289 </td>
-   <td style="text-align:right;"> 0.356 </td>
+   <td style="text-align:right;"> -0.229 </td>
+   <td style="text-align:right;"> 0.240 </td>
+   <td style="text-align:right;"> -0.700 </td>
+   <td style="text-align:right;"> 0.242 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> Ecov AMO: RW $\sigma$ </td>
-   <td style="text-align:right;"> 0.000 </td>
-   <td style="text-align:right;"> 0.027 </td>
-   <td style="text-align:right;"> 0.000 </td>
-   <td style="text-align:right;"> Inf </td>
+   <td style="text-align:right;"> 0.137 </td>
+   <td style="text-align:right;"> 0.018 </td>
+   <td style="text-align:right;"> 0.106 </td>
+   <td style="text-align:right;"> 0.178 </td>
   </tr>
 </tbody>
 </table>

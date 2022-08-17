@@ -123,3 +123,36 @@ plot_wham_output(mod=WHAM_debugRAMO, out.type='html', dir.main = here::here("Pla
 saveRDS(WHAM_debuRAMOg, file=here::here("PlaiceMSE", "Diagnostic_development", "Debug_R-AMO", "WHAM_debugAMO_model.rds"))
 ```
 
+### Plot OSA residuals for the environmental covariate
+```{r}
+WHAM_debugRAMO$OSA.Ecov %>%
+  ggplot() +
+  geom_histogram(aes(x=residual))
+
+tmp <- WHAM_debugRAMO$OSA.Ecov
+
+# 3.
+xfit<-seq(-ylim.max, ylim.max, length=100)
+      yfit<-dnorm(xfit)
+      hist(tmp$residual, plot=T, xlab="OSA Residuals", ylab="Probability Density", freq=F, main=NULL, breaks="scott")
+      
+# 4. QQ plot modified from car:::qqPlot.default
+      notNA <- tmp$residual[!is.na(tmp$residual)]
+      ord.x <- notNA[order(notNA)]
+      n <- length(ord.x)
+      P <- ppoints(n)
+      z <- qnorm(P, mean=0, sd=1)
+      plot(z, ord.x, xlab="Std Normal Quantiles", ylab="OSA Residual Quantiles", main="")
+      grid(lty = 1, equilogs = FALSE)
+      box()
+      points(z, ord.x, pch=19)
+      abline(0,1)
+      conf = 0.95
+      zz <- qnorm(1 - (1 - conf)/2)
+      SE <- (1/dnorm(z)) * sqrt(P * (1 - P)/n)
+      upper <- z + zz * SE
+      lower <- z - zz * SE
+      lines(z, upper, lty=2)
+      lines(z, lower, lty=2)
+```
+

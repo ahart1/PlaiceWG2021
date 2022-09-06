@@ -207,7 +207,7 @@ for(imod in 1:n.mods){
 
 #TJM STOPPED HERE.
 
-
+# Corrected plots start re-run here (self-tests correctly conducted but only the first 3 were initially plotted due to a computation error)
 ##### Summary Statistics #####
 # Loop over models to generate summary statistics and plots for self-tests
 for(imod in 1:n.mods){
@@ -295,7 +295,8 @@ for(imod in 1:n.mods){
   plotData <- cbind(plotData, converge, sdrepConverge)
   
   # Save plot data for this run
-  saveRDS(plotData, file=paste(here::here(), "WG_Revised_Runs", "Plaice_Self_Test", paste0("plotData_", names(models)[imod],".rds"), sep="/"))
+  #saveRDS(plotData, file=paste(here::here(), "WG_Revised_Runs", "Plaice_Self_Test", paste0("plotData_", names(models)[imod],".rds"), sep="/"))
+  saveRDS(plotData, file=paste(here::here(), "WG_Revised_Runs", "Plaice_Self_Test", paste0("plotData_", names(models)[imod],"CORRECTED.rds"), sep="/"))
   
     
   # ##### Pick out parameters with consistent std errors = NaN, uncomment to look at what parameters are not NaNs - to use FILTER SPECIFIC MODEL FIRST
@@ -335,13 +336,15 @@ for(imod in 1:n.mods){
 
 ##### Plot results of self test #####
 #Adapted from best_v4_4_results.R
+# remotes::install_github("flr/ggplotFL")
 library(ggplotFL)
 
 # Combine plot data across runs
 plotData <- NULL
 for(imod in 1:n.mods){
-  tempPlot <- readRDS(plotData, file=paste(here::here(), "WG_Revised_Runs", "Plaice_Self_Test", paste0("plotData_", names(models)[imod],".rds"), sep="/"))
-
+  # tempPlot <- readRDS(plotData, file=paste(here::here(), "WG_Revised_Runs", "Plaice_Self_Test", paste0("plotData_", names(models)[imod],".rds"), sep="/"))
+  tempPlot <- readRDS(plotData, file=paste(here::here(), "WG_Revised_Runs", "Plaice_Self_Test", paste0("plotData_", names(models)[imod],"CORRECTED.rds"), sep="/"))
+  
   plotData <- rbind(plotData, tempPlot) # Append run to larger plot data set
 }
 # Remove runs that did not converge (hessian=NA)
@@ -370,7 +373,8 @@ ggplot(plotData, aes(x=Year, y=relSSB)) +
   facet_wrap(facets = "model") + 
   theme_bw() +
   theme(axis.text.x = element_text(size=8), plot.margin = unit(c(0.3,0.3,0.1,0.1), "in"))
-ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "relError_SSB.png"), width=8, height = 5)
+# ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "relError_SSB.png"), width=8, height = 5)
+ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots_Corrected", "relError_SSB.png"), width=8, height = 5)
 
 # SSB boxplots (collapse time series)
 ggplot(plotData, aes(x=model, y=relSSB)) +
@@ -382,7 +386,8 @@ ggplot(plotData, aes(x=model, y=relSSB)) +
         geom_hline(yintercept = 1, linetype=2, color='black') +
         theme_bw() +
         theme(plot.title = element_text(hjust = 0.5))
-ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "boxplot_SSB.png"), height = 5, width = 4)
+# ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "boxplot_SSB.png"), height = 5, width = 4)
+ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots_Corrected", "boxplot_SSB.png"), height = 5, width = 4)
 
 # Fbar relative error: Fbar (sim fit) / Fbar (sim data)
 ggplot(plotData, aes(x=Year, y=relF)) +
@@ -397,7 +402,8 @@ ggplot(plotData, aes(x=Year, y=relF)) +
   facet_wrap(facets = "model") + 
   theme_bw() +
   theme(axis.text.x = element_text(size=8), plot.margin = unit(c(0.3,0.3,0.1,0.1), "in"))
-ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "relError_Fbar.png"), width=8, height = 5)
+# ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "relError_Fbar.png"), width=8, height = 5)
+ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots_Corrected", "relError_Fbar.png"), width=8, height = 5)
 
 # Fbar boxplots (collapse time series)
 ggplot(plotData, aes(x=model, y=relF)) +
@@ -409,7 +415,8 @@ ggplot(plotData, aes(x=model, y=relF)) +
   geom_hline(yintercept = 1, linetype=2, color='black') +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
-ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "boxplot_Fbar.png"), height = 5, width = 4)
+# ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "boxplot_Fbar.png"), height = 5, width = 4)
+ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots_Corrected", "boxplot_Fbar.png"), height = 5, width = 4)
 
 # R relative error: R (sim fit) / R (sim data)
 ggplot(plotData, aes(x=Year, y=relR)) +
@@ -424,7 +431,8 @@ ggplot(plotData, aes(x=Year, y=relR)) +
   facet_wrap(facets = "model") + 
   theme_bw() +
   theme(axis.text.x = element_text(size=8), plot.margin = unit(c(0.3,0.3,0.1,0.1), "in"))
-ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "relError_R.png"), width=8, height = 5)
+# ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "relError_R.png"), width=8, height = 5)
+ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots_Corrected", "relError_R.png"), width=8, height = 5)
 
 # R boxplots (collapse time series)
 ggplot(plotData, aes(x=model, y=relR)) +
@@ -436,7 +444,8 @@ ggplot(plotData, aes(x=model, y=relR)) +
   geom_hline(yintercept = 1, linetype=2, color='black') +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
-ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "boxplot_R.png"), height = 5, width = 4)
+# ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "boxplot_R.png"), height = 5, width = 4)
+ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots_Corrected", "boxplot_R.png"), height = 5, width = 4)
 
 # Catch relative error: Catch (sim fit) / Catch (sim data)
 ggplot(plotData, aes(x=Year, y=relCat)) +
@@ -451,7 +460,8 @@ ggplot(plotData, aes(x=Year, y=relCat)) +
   facet_wrap(facets = "model") + 
   theme_bw() +
   theme(axis.text.x = element_text(size=8), plot.margin = unit(c(0.3,0.3,0.1,0.1), "in"))
-ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "relError_Catch.png"), width=8, height = 5)
+# ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "relError_Catch.png"), width=8, height = 5)
+ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots_Corrected", "relError_Catch.png"), width=8, height = 5)
 
 # Catch boxplots (collapse time series)
 ggplot(plotData, aes(x=model, y=relCat)) +
@@ -463,7 +473,8 @@ ggplot(plotData, aes(x=model, y=relCat)) +
   geom_hline(yintercept = 1, linetype=2, color='black') +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
-ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "boxplot_Catch.png"), height = 5, width = 4)
+# ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots", "boxplot_Catch.png"), height = 5, width = 4)
+ggsave(file=here::here("WG_Revised_Runs", "Plaice_Self_Test", "plots_Corrected", "boxplot_Catch.png"), height = 5, width = 4)
 
 ##### Calculate means (as in box plots) #####
 plotData %>%

@@ -14,6 +14,9 @@ env_noise <- "low" # Options: "low", "high" SPECIFY AMOUNT OF NOISE IN COVARIATE
 env_lag <- 0
 outdir <- here::here("PlaiceMSE", "Results")
 
+library(wham)
+library(tidyverse)
+
 ##### Documentation #####
 #' @param env_driver_OM A string indicating whether operating model (OM) has environmental driver ("BT" or "AMO") or not ("None"), default = "None"
 #' \itemize{
@@ -27,7 +30,7 @@ outdir <- here::here("PlaiceMSE", "Results")
 #'   \item{"AMO" - Atlantic-Multidecadal Oscillation impacts specified stock dynamic} 
 #' }
 #' @param env_noise A string indicating whether environmental data has "high" or "low" noise, only required if env_driver_OM != "None", default = "low"
-#' @param env_lag A number indicating the nuimber of years to lag the environmental effect, default = 0.
+#' @param env_lag A number indicating the number of years to lag the environmental effect in the OM and EM, default = 0.
 #' @param stock_dynamic A string indicating whether the environmental driver impacts catchability ("q") or recruitment ("recruit"), only required if env_driver_OM != "None", default = "q"
 #' \itemize{
 #'   \item{"q" - Environmental covariate impacts catchability, by default impacts all 4 indices (Bigelow and Albatross spring and fall)}
@@ -133,6 +136,27 @@ plaiceMSE <- function(env_driver_OM = "None",
   # The setupOM generated in this section is used to simulate historic datasets for the OM in each MSE simulation (so data internally consistent over timeseries)
   # Set up OM when no environmental driver, fit to env driver assumed by 
   if(env_driver_OM == "None"){ # OMs without environmental driver - set up like EM, essentially a self-test
+    # Read in mean trends for projection of selected env_driver_OM (subsequent if statements set up OM with selected trend)
+    projFile <- list.files(here::here("data", "MSE_data"), pattern = paste0("proj", env_driver_EM))
+    projData <- read.csv(here::here("data", "MSE_data", projFile))
+    
+    # Filter projData to setup years
+    setupData <- projData %>% 
+      filter(Year < asap3$dat$year1 + asap3$dat$n_years) %>% 
+      filter(Year > asap3$dat$year1-1)
+    
+    # Setup ecov_OM so available to EM, OM not fit to this data
+    ecov_OM <- list(
+      label = env_driver_OM,
+      mean = as.matrix(setupData[,which(grepl(forcing, names(setupData), fixed = TRUE))]),
+      logsigma = as.matrix(log(setupData[,which(grepl(forcing, names(setupData), fixed = TRUE))])),
+      year = as.numeric(setupData$Year),
+      use_obs = use_obs,
+      lag = 0,
+      process_model = "rw",
+      where = "none",
+      how = 0)
+    
     # Regenerate input as for inputEM_withoutEnv but DO NOT FIT ENV DATA
     inputOM <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "OM", age_comp = "logistic-normal-miss0") 
     setupOM <- fit_wham(input = inputOM, do.retro=FALSE, do.osa=FALSE, MakeADFun.silent=TRUE)
@@ -144,15 +168,15 @@ plaiceMSE <- function(env_driver_OM = "None",
     projData <- read.csv(here::here("data", "MSE_data", projFile))
     
     # Filter projData to setup years
-    setupData <- projData %>% filter(Year < 2020)
+    setupData <- projData %>% 
+      filter(Year < asap3$dat$year1 + asap3$dat$n_years) %>% 
+      filter(Year > asap3$dat$year1-1)
     
-      if(forcing == "increase"){ # Fish continue to move deeper into colder water, catchability keeps declining
-        if(env_noise == "low"){ # Low noise in env driver
           # Populate ecov object for OM with historic environmental data
           ecov_OM <- list(
             label = env_driver_OM, 
-            mean = as.matrix(setupData$increasing_mean), 
-            logsigma = as.matrix(log(setupData$low_se)), #  need to reduce standard error - in projData file (ask Lisa and Tim what SE is relatively noisy/not noisy data)
+            mean = as.matrix(setupData[,which(grepl(forcing, names(setupData), fixed = TRUE))]), 
+            logsigma = as.matrix(log(setupData[,which(grepl(forcing, names(setupData), fixed = TRUE))])), #  need to reduce standard error - in projData file (ask Lisa and Tim what SE is relatively noisy/not noisy data)
             year = as.numeric(setupData$Year), 
             use_obs = use_obs,
             lag = env_lag, 
@@ -166,66 +190,6 @@ plaiceMSE <- function(env_driver_OM = "None",
           # Fit OM
           setupOM <- fit_wham(input = inputOM, do.retro = FALSE, do.osa = FALSE, MakeADFun.silent=TRUE)
           
-        } else if(env_noise == "high"){ # High noise in env driver
-          # Populate ecov object for OM with historic environmental data
-          ecov_OM <- list(
-            label = env_driver_OM, 
-            mean = as.matrix(setupData$increasing_mean), 
-            logsigma = as.matrix(log(setupData$high_se)), #  need to reduce standard error - in projData file(ask Lisa and Tim what SE is relatively noisy/not noisy data)
-            year = as.numeric(setupData$Year), 
-            use_obs = use_obs,
-            lag = env_lag, 
-            process_model = "rw",
-            where = stock_dynamic, 
-            how = 1,
-            indices = list(c(1,2,3,4)))
-          
-          # Format input 
-          inputOM <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "OM", age_comp = "logistic-normal-miss0", ecov = ecov_OM) 
-          # Fit OM
-          setupOM <- fit_wham(input = inputOM, do.retro = FALSE, do.osa = FALSE, MakeADFun.silent=TRUE)
-        }
-      } else if(forcing == "decrease"){ # Fish stop moving into deeper water, water temperature at depth starts to increase, catchability  stays similar to current (assuming deeper shift due to dislike of warm water, unlikely to move back inshore)
-        if(env_noise == "low"){ # Low noise in env driver
-          # Populate ecov object for OM with historic environmental data
-          ecov_OM <- list(
-            label = env_driver_OM, 
-            mean = as.matrix(setupData$decreasing_mean), 
-            logsigma = as.matrix(log(setupData$low_se)), #  need to reduce standard error - in projData file (ask Lisa and Tim what SE is relatively noisy/not noisy data)
-            year = as.numeric(setupData$Year), 
-            use_obs = use_obs,
-            lag = env_lag, 
-            process_model = "rw",
-            where = stock_dynamic, 
-            how = 1,
-            indices = list(c(1,2,3,4)))
-          
-          # Format input 
-          inputOM <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "OM", age_comp = "logistic-normal-miss0", ecov = ecov_OM) 
-          # Fit OM
-          setupOM <- fit_wham(input = inputOM, do.retro = FALSE, do.osa = FALSE, MakeADFun.silent=TRUE)
-          
-        } else if(env_noise == "high"){ # High noise in env driver
-          # Populate ecov object for OM with historic environmental data
-          ecov_OM <- list(
-            label = env_driver_OM, 
-            mean = as.matrix(setupData$decreasing_mean), 
-            logsigma = as.matrix(log(setupData$high_se)), #  need to reduce standard error - in projData file (ask Lisa and Tim what SE is relatively noisy/not noisy data)
-            year = as.numeric(setupData$Year), 
-            use_obs = use_obs,
-            lag = env_lag, 
-            process_model = "rw",
-            where = stock_dynamic, 
-            how = 1,
-            indices = list(c(1,2,3,4)))
-          
-          # Format input 
-          inputOM <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "OM", age_comp = "logistic-normal-miss0", ecov = ecov_OM) 
-          # Fit OM
-          setupOM <- fit_wham(input = inputOM, do.retro = FALSE, do.osa = FALSE, MakeADFun.silent=TRUE)
-          
-        }
-      } # End if statements for up/down forcing and high/low env noise
       
       # Recruitment OMs 
     } else if(stock_dynamic == "recruit"){
@@ -235,15 +199,15 @@ plaiceMSE <- function(env_driver_OM = "None",
       projData <- read.csv(here::here("data", "MSE_data", projFile))
       
       # Filter projData to setup years
-      setupData <- projData %>% filter(Year < 2020)
+      setupData <- projData %>% 
+        filter(Year < asap3$dat$year1 + asap3$dat$n_years) %>% 
+        filter(Year > asap3$dat$year1-1)
       
-      if(forcing == "increase"){
-        if(env_noise == "low"){ # High noise in env driver
           # Populate ecov object for OM with historic environmental data
           ecov_OM <- list(
             label = env_driver_OM, 
-            mean = as.matrix(setupData$increasing_mean), 
-            logsigma = as.matrix(log(setupData$low_se)), #  need to reduce standard error - in projData file (ask Lisa and Tim what SE is relatively noisy/not noisy data)
+            mean = as.matrix(setupData[,which(grepl(forcing, names(setupData), fixed = TRUE))]), 
+            logsigma = as.matrix(log(setupData[,which(grepl(forcing, names(setupData), fixed = TRUE))])), #  need to reduce standard error - in projData file (ask Lisa and Tim what SE is relatively noisy/not noisy data)
             year = as.numeric(setupData$Year), 
             use_obs = use_obs,
             lag = env_lag, 
@@ -256,65 +220,7 @@ plaiceMSE <- function(env_driver_OM = "None",
           # Fit OM
           setupOM <- fit_wham(input = inputOM, do.retro = FALSE, do.osa = FALSE, MakeADFun.silent=TRUE)
           
-        } else if(env_noise == "high"){ # Low noise in env driver
-          # Populate ecov object for OM with historic environmental data
-          ecov_OM <- list(
-            label = env_driver_OM, 
-            mean = as.matrix(setupData$increasing_mean), 
-            logsigma = as.matrix(log(setupData$high_se)), #  need to reduce standard error - in projData file (ask Lisa and Tim what SE is relatively noisy/not noisy data)
-            year = as.numeric(setupData$Year), 
-            use_obs = use_obs,
-            lag = env_lag, 
-            process_model = "rw",
-            where = stock_dynamic, 
-            how = 1) # controlling = density-independent mortality
-          
-          # Format input 
-          inputOM <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "OM", age_comp = "logistic-normal-miss0", ecov = ecov_OM) 
-          # Fit OM
-          setupOM <- fit_wham(input = inputOM, do.retro = FALSE, do.osa = FALSE, MakeADFun.silent=TRUE)
-          
-        }
-      } else if(forcing == "decrease"){ # Environmental forcing decreasing
-        if(env_noise == "low"){ # High noise in env driver
-          # Populate ecov object for OM with historic environmental data
-          ecov_OM <- list(
-            label = env_driver_OM, 
-            mean = as.matrix(setupData$decreasing_mean), 
-            logsigma = as.matrix(log(setupData$low_se)), #  need to reduce standard error - in projData file (ask Lisa and Tim what SE is relatively noisy/not noisy data)
-            year = as.numeric(setupData$Year), 
-            use_obs = use_obs,
-            lag = env_lag, 
-            process_model = "rw",
-            where = stock_dynamic, 
-            how = 1) # controlling = density-independent mortality
-          
-          # Format input 
-          inputOM <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "OM", age_comp = "logistic-normal-miss0", ecov = ecov_OM) 
-          # Fit OM
-          setupOM <- fit_wham(input = inputOM, do.retro = FALSE, do.osa = FALSE, MakeADFun.silent=TRUE)
-          
-        } else if(env_noise == "high"){ # Low noise in env driver
-          # Populate ecov object for OM with historic environmental data
-          ecov_OM <- list(
-            label = env_driver_OM, 
-            mean = as.matrix(setupData$decreasing_mean), 
-            logsigma = as.matrix(log(setupData$high_se)), #  need to reduce standard error - in projData file (ask Lisa and Tim what SE is relatively noisy/not noisy data)
-            year = as.numeric(setupData$Year), 
-            use_obs = use_obs,
-            lag = env_lag, 
-            process_model = "rw",
-            where = stock_dynamic, 
-            how = 1) # controlling = density-independent mortality
-          
-          # Format input 
-          inputOM <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "OM", age_comp = "logistic-normal-miss0", ecov = ecov_OM) 
-          # Fit OM
-          setupOM <- fit_wham(input = inputOM, do.retro = FALSE, do.osa = FALSE, MakeADFun.silent=TRUE)
-          
-        }
-      } # End if statements for up/down forcing and high/low env noise
-      
+        
     } # End if statements for stock_dynamic options
   
   ##### Simulate historic data based on selected OM ##### 
@@ -336,46 +242,46 @@ plaiceMSE <- function(env_driver_OM = "None",
   saveRDS(OMsimdata, file = paste(filelocation, "OMdata.rds", sep="/"))
   
   
-  
-  ##### Generate setupEM inputs and fit to real data (overwritten in simulations) #####
-
-  # Read in mean trends for projection of selected env_driver_EM 
-  projFile <- list.files(here::here("data", "MSE_data"), pattern = paste0("proj", env_driver_EM))
-  projData <- read.csv(here::here("data", "MSE_data", projFile))
-
-  # Filter projData to setup years
-  setupData <- projData %>% filter(Year < 2020)
-
-  ### Setup environmental covariate with no effect 
-  ecov_noEffect <- ecov_OM # Initialize using OM settings # NO ecov_OM if not env link???!!!!!!!
-  # Update pieces that differ from the OM
-  ecov_noEffect$label <- env_driver_EM 
-  ecov_noEffect$logsigma <- log(exp(ecov_OM$logsigma) + exp(ecov_OM$logsigma)/2) # Increase SE half as much as OM (not actually used when no covariate)
-  ecov_noEffect$lag <- 0 # No lag
-  ecov_noEffect$where <- "none"
-  ecov_noEffect$how <- 0 
-  
-  ### setupEM no environmental covariate
-  # Same input as when env_driver_OM == "None", but fit to env covariate with no effect
-  inputEM_withoutEnv <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_withoutEnv", age_comp = "logistic-normal-miss0", ecov=ecov_noEffect) # logistic normal age comp, 0s treated as missing
-  setupEM_withoutEnv <- fit_wham(inputEM_withoutEnv, do.retro = TRUE, do.osa = FALSE, MakeADFun.silent = TRUE)
-  
-  ### setupEM environmental covariate with effect
-  ecov_withEffect <- ecov_OM # Initialize using OM settings # Does not work if OM has no ecov
-  # Update pieces that differ from the OM
-  ecov_withEffect$label <- env_driver_EM
-  ecov_withEffect$logsigma <- log(exp(ecov_OM$logsigma) + exp(ecov_OM$logsigma)/2) # Increase SE half as much as OM
-  
-  inputEM_withEnv <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_withEnv", age_comp = "logistic-normal-miss0", ecov=ecov_withEffect) # logistic normal age comp, 0s treated as missing
-  setupEM_withEnv <- fit_wham(inputEM_withEnv, do.retro = TRUE, do.osa = FALSE, MakeADFun.silent = TRUE)
-  
+  ########### Don't think this is necessary ###############
+  # ##### Generate setupEM inputs and fit to real data (overwritten in simulations) #####
+  # 
+  # # Read in mean trends for projection of selected env_driver_EM 
+  # projFile <- list.files(here::here("data", "MSE_data"), pattern = paste0("proj", env_driver_EM))
+  # projData <- read.csv(here::here("data", "MSE_data", projFile))
+  # 
+  # # Filter projData to setup years
+  # setupData <- projData %>% filter(Year < 2020)
+  # 
+  # ### Setup environmental covariate with no effect 
+  # ecov_noEffect <- ecov_OM # Initialize using OM settings # NO ecov_OM if not env link???!!!!!!!
+  # # Update pieces that differ from the OM
+  # ecov_noEffect$label <- env_driver_EM 
+  # ecov_noEffect$logsigma <- log(exp(ecov_OM$logsigma) + exp(ecov_OM$logsigma)/2) # Increase SE half as much as OM (not actually used when no covariate)
+  # ecov_noEffect$lag <- 0 # No lag
+  # ecov_noEffect$where <- "none"
+  # ecov_noEffect$how <- 0 
+  # 
+  # ### setupEM no environmental covariate
+  # # Same input as when env_driver_OM == "None", but fit to env covariate with no effect
+  # inputEM_withoutEnv <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_withoutEnv", age_comp = "logistic-normal-miss0", ecov=ecov_noEffect) # logistic normal age comp, 0s treated as missing
+  # setupEM_withoutEnv <- fit_wham(inputEM_withoutEnv, do.retro = TRUE, do.osa = FALSE, MakeADFun.silent = TRUE)
+  # 
+  # ### setupEM environmental covariate with effect
+  # ecov_withEffect <- ecov_OM # Initialize using OM settings # Does not work if OM has no ecov
+  # # Update pieces that differ from the OM
+  # ecov_withEffect$label <- env_driver_EM
+  # ecov_withEffect$logsigma <- log(exp(ecov_OM$logsigma) + exp(ecov_OM$logsigma)/2) # Increase SE half as much as OM
+  # 
+  # inputEM_withEnv <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_withEnv", age_comp = "logistic-normal-miss0", ecov=ecov_withEffect) # logistic normal age comp, 0s treated as missing
+  # setupEM_withEnv <- fit_wham(inputEM_withEnv, do.retro = TRUE, do.osa = FALSE, MakeADFun.silent = TRUE)
+  # 
   ### setupEM environmental covariate without effect but WITH random effects for specified stock_dynamic
   if(stock_dynamic == "q"){ # Add catchability random effect for all indices
     # Setup catchability random effect
-    catchability <- list(re=rep("iid",4))  
+    catchability <- list(re=rep("iid",4))
     # Fit model
-    inputEM_noEnv_randQ <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_noEnv_randQ", age_comp = "logistic-normal-miss0", ecov=ecov_noEffect, catchability = catchability) # logistic normal age comp, 0s treated as missing, based on WG run 29F4
-    EM_withoutEnv_rand <- fit_wham(inputEM_noEnv_randQ, do.retro=TRUE, do.osa=FALSE, MakeADFun.silent = TRUE)
+    # inputEM_noEnv_randQ <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_noEnv_randQ", age_comp = "logistic-normal-miss0", ecov=ecov_noEffect, catchability = catchability) # logistic normal age comp, 0s treated as missing, based on WG run 29F4
+    # EM_withoutEnv_rand <- fit_wham(inputEM_noEnv_randQ, do.retro=TRUE, do.osa=FALSE, MakeADFun.silent = TRUE)
   } else if(stock_dynamic == "R"){ # Add recruitment random effect for all indices - this might not make sense to do if using accepted assessment for plaice !!!
     #!!! fill this in
   }
@@ -395,52 +301,89 @@ plaiceMSE <- function(env_driver_OM = "None",
     inputSimOM$par <- setupOM$parList
     # Fit OM to simulated data (rather than raw data as in setupOM)
     simOM <- fit_wham(inputSimOM, do.sdrep=F, do.osa=F, do.retro=T, do.proj=F, MakeADFun.silent=TRUE)
-
-    ##### Set up input for first EM #####
-    # Rename simOM to resultOM so observation error correctly added at start of MSE loop (within MSE loops data pulled from OM rather than historic data)
-    resultOM <- simOM$input$data
     
     ##### Set up storage #####
     advice <- rep(NA, nyear)
     
+    ##### MISSING ADVICE FOR FIRST YEAR OF MSE #####
+    advice[1] <- 10000 # placeholder!!!!!!
     
     ##### Loop over projection years in simulation #####
     # Specify the number of historic (base) years to which projection is appended
     hist_year <- length(simOM$years) # !!! update with some specific value of length baseyears
     
     for(iproj in seq(1,nyear, by=freqEM)){
+      ##### OM #####
+      ### Project OM forward one year under the F from management advice
+      # Provide management info to projection of nyear years (only the projected years 1:iproj are used to increase the observed data)
+      projInput <- prepare_projection(simOM, proj.opts = list(n.yrs = nyear,
+                                                              use.last.F = FALSE,
+                                                              use.avg.F = FALSE,
+                                                              use.FXSPR = FALSE,
+                                                              use.FMSY = FALSE,
+                                                              # proj.F = 0.2,
+                                                              avg.yrs = tail(simOM$years, 5), # Use avg over last 5 yrs for ref pts
+                                                              proj.catch = advice, 
+                                                              cont.ecov = TRUE,
+                                                              use.last.ecov = FALSE,
+                                                              # proj.ecov = testEcov, # !!! Figure out how to use this instead so pulling from vector/table of env timeseries instead of using avg
+                                                              avg.ecov.yrs = tail(simOM$years, 5)))
+      # Set up model for projection with appended advice input
+      projOM <- fit_wham(projInput, do.sdrep = FALSE, do.retro = FALSE, do.osa = FALSE, do.proj = FALSE, MakeADFun.silent = TRUE, do.fit = FALSE)
+      # Do projection
+      set.seed(sim.seeds[isim]) # Use same seed for the entire simulation so projection generates same historic time series
+      resultOM <- projOM$simulate(complete=TRUE)
+      
+      # I don't think I need this!!!!
+      # ### Update the simOM with the projected data and reset the OM for use in the next timestep
+      # # Update with projected data
+      # projInput$par$log_NAA = resultOM$log_NAA
+      # # Reset the OM
+      # simOM <- fit_wham(projInput, n.newton=n.newton, do.sdrep=F, do.retro=F, do.osa=F, do.check=F, do.proj=F,
+      #                MakeADFun.silent = TRUE, save.sdrep=FALSE, do.fit = F)
+      
+      
       ##### Observation model #####
       # !!!!!! still need to add as data passed from resultOM to EM
+      
+      
       ##### EM  ##### 
-      
-      ### Do assessment with Env covariate
-      # Initialize input data for EM using fitted EM input
-      inputEM_withEnv <- setupEM_withEnv$input
-      ### Overwrite with OM data (in first year drawn from historic OM)
-      # Increase terminal year
-      
-      # !!!!!!! set up storage object here
-      
+      ### Update general EM data (only ecov & random effect data vary between EMs in this study - this info initialized below)
       # Initialize new input data
       inputEM_setup <- NULL 
       # Append index & catch data from OM #!!!! Add obs error here
-      inputEM_setup$years <- asap3$dat$year1:max(asap3$dat$year1 + asap3$dat$n_years + iproj) # Add proj to historic time series whose length matches asap3 data
-      inputEM_setupEnv$agg_indices <- rbind(resultOM$agg_indices, resultOM$agg_indices_proj[1:iproj,,drop=F]) # Append projected index data through year iproj
+      inputEM_setup$years <- asap3$dat$year1:max(asap3$dat$year1 + asap3$dat$n_years - 1 + iproj) # Add proj to historic time series whose length matches asap3 data (-1 included so first year not double counted)
+      inputEM_setup$agg_indices <- rbind(resultOM$agg_indices, resultOM$agg_indices_proj[1:iproj,,drop=F]) # Append projected index data through year iproj
       inputEM_setup$agg_catch <- rbind(resultOM$agg_catch, resultOM$agg_catch_proj[1:iproj,,drop=F]) # Append projected catch data through year iproj
       inputEM_setup$index_paa <- abind::abind(resultOM$index_paa, resultOM$index_paa_proj[,1:iproj,,drop=F], along=2) # Append index PAA through year iproj
       inputEM_setup$catch_paa <- abind::abind(resultOM$catch_paa, resultOM$catch_paa_proj[,1:iproj,,drop=F], along=2) # Append catch PAA through year iproj
-      inputEM_setup$catch_Neff <- rbind(resultOM$catch_Neff, tail(resultOm$catch_Neff, n=1)) # Assume catch_Neff in projection same as in last year
-      inputEM_setup$index_Neff <- rbind(resultOM$index_Neff, resultOM$index_Neff[nrow(resultOM$index_Neff),]) # Assume index_Neff in projection same as in last year
-      inputEM_setup$n_years_catch <- length(inputEM_setup$data$agg_catch)
+      inputEM_setup$n_years_catch <- length(inputEM_setup$agg_catch)
       inputEM_setup$n_years_indices <- length(inputEM_setup$years)
       inputEM_setup$n_years_model <- length(inputEM_setup$years)
-      inputEM_setup$use_catch_paa <- rbind(resultOM$use_catch_paa, tail(resultOM$use_catch_paa, n=1)) # Use new catch_paa data that was appended
-      inputEM_setup$use_index_paa <- rbind(resultOM$use_index_paa, resultOM$use_index_paa[nrow(resultOM$use_index_paa),]) # Use new index_paa data as in last year of OM
-      # !!! Revisit WAA calculation !!!!! for now use same WAA as in last year of historic
-      inputEM_setup$waa <- abind::abind(resultOM$waa, resultOM$waa[,length(inputEM_setup$years),,drop=F], along=2)
+      # Use catch paa from all years
+      inputEM_setup$use_catch_paa <- matrix(1,inputEM_setup$n_years_model, ncol=1) 
+      # Use index data from all years (but terminal years differ since Bigelow indices have data)
+      if(iproj==1){ # In first year of MSE projection only add 1 year of index data for use
+        resultOM$use_index_paa <- rbind(resultOM$use_index_paa, resultOM$use_index_paa[nrow(resultOM$use_index_paa),]) # Use new index_paa data as in last year of OM
+        inputEM_setup$catch_Neff <- rbind(resultOM$catch_Neff, tail(resultOM$catch_Neff, n=1)) # Assume catch_Neff in projection same as in last year
+        inputEM_setup$index_Neff <- rbind(resultOM$index_Neff, resultOM$index_Neff[nrow(resultOM$index_Neff),]) # Assume index_Neff in projection same as in last year
+      } else{ # in subsequent projection years add data in steps of assessment frequency
+        for(i in 1:freqEM){
+          resultOM$use_index_paa <- rbind(resultOM$use_index_paa, resultOM$use_index_paa[nrow(resultOM$use_index_paa),]) # Use new index_paa data as in last year of OM
+          # Update Neff
+          resultOM$catch_Neff <- rbind(resultOM$catch_Neff, tail(resultOM$catch_Neff, n=1)) # Assume catch_Neff in projection same as in last year
+          resultOM$index_Neff <- rbind(resultOM$index_Neff, resultOM$index_Neff[nrow(resultOM$index_Neff),]) # Assume index_Neff in projection same as in last year
+        }
+        inputEM_setup$catch_Neff <- resultOM$catch_Neff
+        inputEM_setup$index_Neff <- resultOM$index_Neff
+      }
+      inputEM_setup$use_index_paa <- resultOM$use_index_paa
       
       
-      # Pass the remaining EM setup info pulled from initial OM and passed to basic_info (i.e. generic EM settings that are not specific to one of the 4 EM options) - assume no misspecification in selectivity blocks/#fleets/#indices
+      # Use WAA from projection !!! currently without error
+      inputEM_setup$waa <- resultOM$waa[,1:inputEM_setup$n_years_model,,drop=F] # abind::abind(resultOM$waa, resultOM$waa[,length(inputEM_setup$years),,drop=F], along=2)
+      
+      # Pass the remaining EM setup info pulled from the OM and passed to basic_info (i.e. generic EM settings that are not specific to one of the 4 EM options) - assume no misspecification in selectivity blocks/#fleets/#indices
       inputEM_setup$ages <- 1:resultOM$n_ages
       inputEM_setup$n_fleets <- resultOM$n_fleets
       inputEM_setup$n_years_selblocks <- rep(length(inputEM_setup$years), 5) # Assume 1 fleet + 4 indices !!!!
@@ -449,44 +392,66 @@ plaiceMSE <- function(env_driver_OM = "None",
       inputEM_setup$units_indices <- resultOM$units_indices
       inputEM_setup$units_index_paa <- resultOM$units_index_paa
       inputEM_setup$selblock_pointer_indices <- rbind(resultOM$selblock_pointer_indices, resultOM$selblock_pointer_indices[nrow(resultOM$selblock_pointer_indices),])
-      inputEM_setup$maturity <- rbind(resultOM$mature, resultOM$mature[nrow(resultOM$mature),]) # Maturity schedule remains consistent
+      # for(i in 1:freqEM){
+      #   resultOM$mature <- rbind(resultOM$mature, resultOM$mature[nrow(resultOM$mature),]) 
+      # }
+      inputEM_setup$maturity <- matrix(rep(resultOM$mature[1,], inputEM_setup$n_years_model), ncol = length(inputEM_setup$ages), byrow=TRUE) # Maturity schedule remains consistent
       inputEM_setup$fracyr_SSB <- rep(0.25,inputEM_setup$n_years_model)
       inputEM_setup$fracyr_indices <- rbind(resultOM$fracyr_indices, resultOM$fracyr_indices[nrow(resultOM$fracyr_indices),])
-      inputEM_setup$Fbar_ages <- resultOM$Fbar_ages
+      inputEM_setup$Fbar_ages <- as.integer(resultOM$Fbar_ages)
       # !!! double check that it makes sense to have no obs error for q
-      inputEM_setup$q <- asap3$dat$q_ini # Use same initial q as in plaice data runs
+      # inputEM_setup$q <- asap3$dat$q_ini # Use same initial q as in plaice data runs
       inputEM_setup$percentSPR <- resultOM$percentSPR
       inputEM_setup$percentFXSPR <- resultOM$percentFXSPR
       inputEM_setup$percentFMSY <- resultOM$percentFMSY
       
-      # Update ecov object with additional years of data
-        # START HERE TO UPDATE ECOV DATA !!!
       
-      prepare_wham_input(basic_info = inputEM_setup, selectivity = selectivity, NAA_re = NAA_re, M = M)
-      
-      
-      # Increase ecov data
-      inputEM_withEnv$data$Ecov_year <- min(resultOM$Ecov_year):(max(resultOM$Ecov_year) + iproj) # Update Ecov years
-      inputEM_withEnv$data$Ecov_use_obs <- rbind(inputEM_withEnv$data$Ecov_use_obs, rep(TRUE,freqEM)) # Update use obs 
-      inputEM_withEnv$data$Ecov_use_re <- append(inputEM_withEnv$data$Ecov_use_re, c(rep(tail(inputEM_withEnv$data$Ecov_use_re,n=1),freqEM))) %>% as.matrix(ncol=1)
-      inputEM_withEnv$data$Ecov_obs <- projData[1:(length(inputEM_withEnv$years)),which(grepl(forcing, colnames(projData), fixed=TRUE))] %>% as.matrix(ncol=1) # Replace with Ecov obs through iproj year
-      inputEM_withEnv$data$n_years_Ecov <- length(inputEM_withEnv$data$Ecov_year)
-      # Update ecov par
-      inputEM_withEnv$par$Ecov_obs_logsigma <- projData[1:(length(inputEM_withEnv$years)),which(grepl(env_noise, colnames(projData), fixed=TRUE))] %>% log() %>% as.matrix(ncol=1) # Replace log sigma with extended time series
-      inputEM_withEnv$par$Ecov_obs_logsigma_re <- append(inputEM_withEnv$par$Ecov_obs_logsigma_re, c(rep(tail(inputEM_withEnv$par$Ecov_obs_logsigma_re,n=1),freqEM))) %>% as.matrix(ncol=1) # also extend re for log sigma
-      inputEM_withEnv$par$Ecov_re <- append(inputEM_withEnv$par$Ecov_re, c(rep(tail(inputEM_withEnv$par$Ecov_re, n=1), freqEM))) %>% as.matrix(ncol=1)
-      # Update ecov par mapping
-      inputEM_withEnv$map$Ecov_obs_logsigma <- append(inputEM_withEnv$map$Ecov_obs_logsigma, rep(tail(inputEM_withEnv$map$Ecov_obs_logsigma, n=1),freqEM))
-      inputEM_withEnv$map$Ecov_re <- factor(c(levels(input$map$Ecov_re), as.character(length(resultOM$Ecov_year)+1:iproj)))
-      inputEM_withEnv$map$Ecov_logsigma <- append(inputEM_withEnv$map$Ecov_logsigma, rep(tail(inputEM_withEnv$map$Ecov_logsigma, n=1),freqEM))
-      inputEM_withEnv$map$Ecov_beta <- append(inputEM_withEnv$map$Ecov_beta, rep(tail(inputEM_withEnv$map$Ecov_beta, n=1),freqEM))
-      
-      Ecov_beta # don't mess with
-      Ecov_process_pars # don't mess with
-      Ecov_obs_sigma_par # don't mess with
-      
-      # Fit EM to simulated data from OM with sdreport - originally without
-      fit_withEnv <- fit_wham(inputEM_withEnv, do.sdrep=TRUE, do.osa=F, do.retro=F, do.proj=F, MakeADFun.silent=TRUE)
+      ### Do assessment without Env covariate (status quo) !!! need to fit to data but without effect!!! 
+      ## Update ecov object with additional years of data
+      # Initialize object with OM settings
+      ecov_withoutEffect <- ecov_OM 
+      # Pull extended ecov time series
+      envDat <- projData %>% filter(Year < 2020+iproj)
+      # Overwrite with EM specific settings & append new years of data
+      ecov_withoutEffect$label <- env_driver_EM
+      ecov_withoutEffect$mean <- as.matrix(envDat[,which(grepl(forcing, names(envDat), fixed = TRUE))])
+      ecov_withoutEffect$logsigma <- as.matrix(log(envDat[,which(grepl(forcing, names(envDat), fixed = TRUE))]))
+      ecov_withoutEffect$year <- as.numeric(envDat$Year)
+      ecov_withoutEffect$use_obs <- as.matrix(rep(TRUE, length(ecov_withoutEffect$year)), ncol=1)
+      ecov_withoutEffect$lag <- 0
+      ecov_withoutEffect$where <- "none"
+      ecov_withoutEffect$how <- 0 # process & indices arguments are consistent with the OM settings
+      # Updated input
+      inputEM_withoutEnv <- prepare_wham_input(basic_info = inputEM_setup, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_withoutEnv", age_comp = "logistic-normal-miss0", ecov=ecov_withoutEffect)
+      ## Fit EM to simulated data from OM with sdreport - originally without
+      fit_withoutEnv <- fit_wham(inputEM_withoutEnv, do.sdrep=TRUE, do.osa=F, do.retro=T, do.proj=F, MakeADFun.silent=TRUE) 
+      # Add OSA residual calculation for fit to aggregate indices and environmental data
+        # Rename fitted model so it can be manipulated in OSA residual calcs without losing info
+        fitted_withoutEnv <- fit_withoutEnv
+        # Remove paa data from model input object so OSA only calculated for aggregate index and Ecov (as in first few lines of make_osa_residuals())
+        fitted_withoutEnv$input$data$obs <- fitted_withoutEnv$input$data$obs %>% filter(type != "indexpaa") %>% filter(type != "catchpaa")
+        # Calculate OSA residual
+        modOSA_withoutEnv <- make_osa_residuals(fitted_withoutEnv)
+        
+      ### Do assessment with Env covariate (status quo)
+      ## Update ecov object with additional years of data
+      # Initialize object with OM settings
+      ecov_withEffect <- ecov_OM 
+      # Pull extended ecov time series
+      envDat <- projData %>% filter(Year < 2020+iproj)
+      # Overwrite with EM specific settings & append new years of data
+      ecov_withEffect$label <- env_driver_EM
+      ecov_withEffect$mean <- as.matrix(envDat[,which(grepl(forcing, names(envDat), fixed = TRUE))])
+      ecov_withEffect$logsigma <- as.matrix(log(envDat[,which(grepl(forcing, names(envDat), fixed = TRUE))]))
+      ecov_withEffect$year <- as.numeric(envDat$Year)
+      ecov_withEffect$use_obs <- as.matrix(rep(TRUE, length(ecov_withEffect$year)), ncol=1)
+      ecov_withEffect$lag <- env_lag
+      ecov_withEffect$where <- stock_dynamic
+      ecov_withoutEffect$how <- 1 # process & indices arguments are consistent with the OM settings
+      # Updated input
+      inputEM_withEnv <- prepare_wham_input(basic_info = inputEM_setup, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_withEnv", age_comp = "logistic-normal-miss0", ecov=ecov_withEffect)
+      ## Fit EM to simulated data from OM with sdreport - originally without
+      fit_withEnv <- fit_wham(inputEM_withEnv, do.sdrep=TRUE, do.osa=F, do.retro=T, do.proj=F, MakeADFun.silent=TRUE) 
       # Add OSA residual calculation for fit to aggregate indices and environmental data
         # Rename fitted model so it can be manipulated in OSA residual calcs without losing info
         fitted_withEnv <- fit_withEnv
@@ -495,37 +460,24 @@ plaiceMSE <- function(env_driver_OM = "None",
         # Calculate OSA residual
         modOSA_withEnv <- make_osa_residuals(fitted_withEnv)
       
-      ### Do assessment without Env covariate (status quo) !!! need to fit to data but without effect!!! 
-      # Initialize input data for EM using setupEM input
-      inputEM_withoutEnv <- inputEM_withoutEnv
-      # Increase terminal year
-      #!!!! Add obs error here
-      inputEM_withoutEnv$years <- min(setupEM_withoutEnv$input$years):max(setupEM_withoutEnv$input$years + iproj)
-      inputEM_withoutEnv$data$agg_indices <- rbind(resultOM$agg_indices, resultOM$agg_indices_proj[1:iproj,,drop=F]) # Append projected index data through year iproj
-      inputEM_withoutEnv$data$agg_catch <- rbind(resultOM$agg_catch, resultOM$agg_catch_proj[1:iproj,,drop=F]) # Append projected catch data through year iproj
-      inputEM_withoutEnv$data$index_paa <- abind::abind(resultOM$index_paa, resultOM$index_paa_proj[,1:iproj,,drop=F], along=2) # Append index PAA through year iproj
-      inputEM_withoutEnv$data$catch_paa <- abind::abind(resultOM$catch_paa, resultOM$catch_paa_proj[,1:iproj,,drop=F], along=2) # Append catch PAA through year iproj
-      # Fit EM to simulated data from OM with sdreport - originally without
-      fit_withoutEnv <- fit_wham(inputEM_withoutEnv, do.sdrep=TRUE, do.osa=F, do.retro=T, do.proj=F, MakeADFun.silent=TRUE) # !!! error when using OM constant assumption because F_dev and logit_sel parameters not being added to
-      # Add OSA residual calculation for fit to aggregate indices and environmental data
-        # Rename fitted model so it can be manipulated in OSA residual calcs without losing info
-        fitted_withoutEnv <- fit_withoutEnv
-        # Remove paa data from model input object so OSA only calculated for aggregate index and Ecov (as in first few lines of make_osa_residuals())
-        fitted_withoutEnv$input$data$obs <- fitted_withoutEnv$input$data$obs %>% filter(type != "indexpaa") %>% filter(type != "catchpaa")
-        # Calculate OSA residual
-        modOSA_withEnv <- make_osa_residuals(fitted_withoutEnv)
-      
-      ### Do assessment without Env covariate but with random effect
-      # Initialize input data for EM using fitted EM input
-      inputEM_withoutEnv_rand <- setupEM_withoutEnv_rand$input
-      # Increase terminal year
-      #!!!! Add obs error here
-      inputEM_withoutEnv_rand$years <- min(setupEM_withoutEnv_rand$input$years):max(setupEM_withoutEnv_rand$input$years + iproj)
-      inputEM_withoutEnv_rand$data$agg_indices <- rbind(resultOM$agg_indices, resultOM$agg_indices_proj[1:iproj,,drop=F]) # Append projected index data through year iproj
-      inputEM_withoutEnv_rand$data$agg_catch <- rbind(resultOM$agg_catch, resultOM$agg_catch_proj[1:iproj,,drop=F]) # Append projected catch data through year iproj
-      inputEM_withoutEnv_rand$data$index_paa <- abind::abind(resultOM$index_paa, resultOM$index_paa_proj[,1:iproj,,drop=F], along=2) # Append index PAA through year iproj
-      inputEM_withoutEnv_rand$data$catch_paa <- abind::abind(resultOM$catch_paa, resultOM$catch_paa_proj[,1:iproj,,drop=F], along=2) # Append catch PAA through year iproj
-      # Fit EM to simulated data from OM with sdreport
+      ### Do assessment without Env covariate but with random effect (fit to env data but no effect)
+      ## Update ecov object with additional years of data
+      # Initialize object with OM settings
+      ecov_withoutEffect_rand <- ecov_OM 
+      # Pull extended ecov time series
+      envDat <- projData %>% filter(Year < 2020+iproj)
+      # Overwrite with EM specific settings & append new years of data
+      ecov_withoutEffect_rand$label <- env_driver_EM
+      ecov_withoutEffect_rand$mean <- as.matrix(envDat[,which(grepl(forcing, names(envDat), fixed = TRUE))])
+      ecov_withoutEffect_rand$logsigma <- as.matrix(log(envDat[,which(grepl(forcing, names(envDat), fixed = TRUE))]))
+      ecov_withoutEffect_rand$year <- as.numeric(envDat$Year)
+      ecov_withoutEffect_rand$use_obs <- as.matrix(rep(TRUE, length(ecov_withoutEffect$year)), ncol=1)
+      ecov_withoutEffect_rand$lag <- 0
+      ecov_withoutEffect_rand$where <- "none"
+      ecov_withoutEffect_rand$how <- 0 # process & indices arguments are consistent with the OM settings
+      # Updated input
+      inputEM_withoutEnv_rand <- prepare_wham_input(basic_info = inputEM_setup, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_withoutEnv_rand", age_comp = "logistic-normal-miss0", ecov=ecov_withoutEffect_rand, catchability = catchability) 
+      ## Fit EM to simulated data from OM with sdreport
       fit_withoutEnv_rand <- fit_wham(inputEM_withoutEnv_rand, do.sdrep=TRUE, do.osa=F, do.retro=T, do.proj=F, MakeADFun.silent=TRUE)
       # Add OSA residual calculation for fit to aggregate indices and environmental data
         # Rename fitted model so it can be manipulated in OSA residual calcs without losing info
@@ -533,7 +485,7 @@ plaiceMSE <- function(env_driver_OM = "None",
         # Remove paa data from model input object so OSA only calculated for aggregate index and Ecov (as in first few lines of make_osa_residuals())
         fitted_withoutEnv_rand$input$data$obs <- fitted_withoutEnv_rand$input$data$obs %>% filter(type != "indexpaa") %>% filter(type != "catchpaa")
         # Calculate OSA residual
-        modOSA_withEnv <- make_osa_residuals(fitted_withoutEnv_rand)
+        modOSA_withoutEnv_rand <- make_osa_residuals(fitted_withoutEnv_rand)
       
       ### Compare diagnostics for the three runs
       # Set up storage for diagnostics 
@@ -644,39 +596,6 @@ plaiceMSE <- function(env_driver_OM = "None",
                               MakeADFun.silent = TRUE)
       # Generate advice using average projected catch over 5 years of fishing at F40 (assume no implementation error)
       advice[iproj] <- EM_proj$rep$pred_catch[length(EM_proj$years) + 1:freqEM]
-      
-      
-      ##### OM #####
-      ### Project OM forward one year under the F from management advice
-      # Provide management info to projection of nyear years (only the projected years 1:iproj are used to increase the observed data)
-      projInput <- prepare_projection(simOM, proj.opts = list(n.yrs = nyear,
-                                                              use.last.F = FALSE,
-                                                              use.avg.F = FALSE,
-                                                              use.FXSPR = FALSE,
-                                                              use.FMSY = FALSE,
-                                                              # proj.F = 0.2,
-                                                              avg.yrs = tail(simOM$years, 5), # Use avg over last 5 yrs for ref pts
-                                                              proj.catch = advice, 
-                                                              cont.ecov = TRUE,
-                                                              use.last.ecov = FALSE,
-                                                              # proj.ecov = testEcov, # !!! Figure out how to use this instead so pulling from vector/table of env timeseries instead of using avg
-                                                              avg.ecov.yrs = tail(simOM$years, 5)
-                                                              ))
-      # Set up model for projection with appended advice input
-      projOM <- fit_wham(projInput, do.sdrep = FALSE, do.retro = FALSE, do.osa = FALSE, do.proj = FALSE, MakeADFun.silent = TRUE, do.fit = FALSE)
-      # Do projection
-      set.seed(sim.seeds[isim]) # Use same seed for the entire simulation so projection generates same historic time series
-      resultOM <- projOM$simulate(complete=TRUE)
-
-      # I don't think I need this!!!!
-      # ### Update the simOM with the projected data and reset the OM for use in the next timestep
-      # # Update with projected data
-      # projInput$par$log_NAA = resultOM$log_NAA
-      # # Reset the OM
-      # simOM <- fit_wham(projInput, n.newton=n.newton, do.sdrep=F, do.retro=F, do.osa=F, do.check=F, do.proj=F,
-      #                MakeADFun.silent = TRUE, save.sdrep=FALSE, do.fit = F)
-
-
       
       
     } # End loop over years

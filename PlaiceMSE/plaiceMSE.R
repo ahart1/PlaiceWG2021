@@ -411,7 +411,10 @@ plaiceMSE <- function(env_driver_OM = "None",
       # Initialize object with OM settings
       ecov_withoutEffect <- ecov_OM 
       # Pull extended ecov time series
-      envDat <- projData %>% filter(Year < 2020+iproj)
+      envDat <- projData %>% 
+        filter(Year < asap3$dat$year1 + asap3$dat$n_years + iproj) %>% # Don't extend past iproj year
+        filter(Year > asap3$dat$year1-1) # Don't go back in time farther than first asap3 year
+      
       # Overwrite with EM specific settings & append new years of data
       ecov_withoutEffect$label <- env_driver_EM
       ecov_withoutEffect$mean <- as.matrix(envDat[,which(grepl(forcing, names(envDat), fixed = TRUE))])
@@ -438,7 +441,9 @@ plaiceMSE <- function(env_driver_OM = "None",
       # Initialize object with OM settings
       ecov_withEffect <- ecov_OM 
       # Pull extended ecov time series
-      envDat <- projData %>% filter(Year < 2020+iproj)
+      envDat <- projData %>% 
+        filter(Year < asap3$dat$year1 + asap3$dat$n_years + iproj) %>% # Don't extend past iproj year
+        filter(Year > asap3$dat$year1-1) # Don't go back in time farther than first asap3 year
       # Overwrite with EM specific settings & append new years of data
       ecov_withEffect$label <- env_driver_EM
       ecov_withEffect$mean <- as.matrix(envDat[,which(grepl(forcing, names(envDat), fixed = TRUE))])
@@ -465,7 +470,9 @@ plaiceMSE <- function(env_driver_OM = "None",
       # Initialize object with OM settings
       ecov_withoutEffect_rand <- ecov_OM 
       # Pull extended ecov time series
-      envDat <- projData %>% filter(Year < 2020+iproj)
+      envDat <- projData %>% 
+        filter(Year < asap3$dat$year1 + asap3$dat$n_years + iproj) %>% # Don't extend past iproj year
+        filter(Year > asap3$dat$year1-1) # Don't go back in time farther than first asap3 year
       # Overwrite with EM specific settings & append new years of data
       ecov_withoutEffect_rand$label <- env_driver_EM
       ecov_withoutEffect_rand$mean <- as.matrix(envDat[,which(grepl(forcing, names(envDat), fixed = TRUE))])

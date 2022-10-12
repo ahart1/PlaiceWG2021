@@ -6,8 +6,8 @@ nsim <- 1 # Number of simulations to run
 freqEM <- 3
 
 # OM settings
-env_driver_OM <- "BT" # Options: "None", "BT", "AMO"
-env_driver_EM <- "BT"
+env_driver_OM <- "None" # Options: "None", "BT", "AMO"
+env_driver_EM <- "BT" # None is not an option
 stock_dynamic <- "q" # Options: "q", "recruit"  SPECIFY IF Q OR R IMPACTED BY ENV, PROVIDE DIRECTLY TO WHAM SETUP
 forcing <- "increase" # Options: "increase", "decrease" SPECIFY DIRECTION OF ENVIRONMENTAL FORCING
 env_noise <- "low" # Options: "low", "high" SPECIFY AMOUNT OF NOISE IN COVARIATE - MAY BE LOW OR HIGH
@@ -63,6 +63,8 @@ plaiceMSE <- function(env_driver_OM = "None",
   filelocation <- paste(outdir, paste("MSE_Results_envOM", env_driver_OM, "envEM", env_driver_EM, timeStamp, sep="_"), sep="/")
   # Create directory to store output
   dir.create(filelocation, showWarnings=TRUE) # makes output directory folder
+  # List object to store simulation results
+  mse_Store <- vector(mode = "list", length = nsim)
   
   ##### Save function inputs in text file #####
   write("# MSE simulation settings", file=paste0(filelocation,"/simInputs.txt"), append = FALSE)
@@ -119,11 +121,13 @@ plaiceMSE <- function(env_driver_OM = "None",
   fix_index_sel <- lapply(1:use_n_indices, function(x) NA) # Set up index object
   fix_index_sel[[1]] <- c(6) # Fix age 6  for for index 1 (NEFSC spring Albatross) # Based on preliminary run
   fix_index_sel[[2]] <- c(5) # Fix age 5 for for index 2 (NEFSC spring Bigelow)
-  fix_index_sel[[3]] <- c(4) # Fix age 4 for for index 3 (NEFSC fall Albatross)
+  fix_index_sel[[3]] <- c(4,11) # Fix age 4 AND 11 for for index 3 (NEFSC fall Albatross)
   fix_index_sel[[4]] <- c(3) # Fix age 3  for for index 4 (NEFSC spring Bigelow)
   init_fleet_sel <- list(c(2,0.4)) # logistic parameters, based on model type
   init_index_sel <- lapply(1:use_n_indices, function(x) c(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5))
   for(i in 1:use_n_indices) init_index_sel[[i]][fix_index_sel[[i]]] <- 1 # replace initial values for 1 for the ages where selectivity fixed
+  # init_index_sel[[3]][11] <- 0.5783887 # Fix Albatross fall age 11+ at estimated value from WG run 29B (as done in WG run 29F2 to avoid convergence issues)
+  
   # Setup random effect by selectivity block (here: fleet, index1, index2, index3, index4)
   randeffect <- c(rep("iid", asap3$dat$n_fleet_sel_blocks), rep("none", 4)) # Don't include selectivity random effects for any surveys 
   # Setup selectivity list
@@ -158,7 +162,7 @@ plaiceMSE <- function(env_driver_OM = "None",
       how = 0)
     
     # Regenerate input as for inputEM_withoutEnv but DO NOT FIT ENV DATA
-    inputOM <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "OM", age_comp = "logistic-normal-miss0") 
+    inputOM <- prepare_wham_input(asap3, NAA_re = NAA_re, selectivity = sel_list, model_name = "OM", age_comp = "logistic-normal-miss0") #, ecov = ecov_OM) # Commented out for debugging purposes
     setupOM <- fit_wham(input = inputOM, do.retro=FALSE, do.osa=FALSE, MakeADFun.silent=TRUE)
     
   } else if(stock_dynamic == "q"){ # Catchability OMs
@@ -291,22 +295,27 @@ plaiceMSE <- function(env_driver_OM = "None",
   for(isim in 1:nsim){
     
     ##### Set up simulation's OM #####
-    # Pull original setupOM input
+    # Pull original input used to generate setupOM (reuse settings here)
     inputSimOM <- setupOM$input
     # Pull OM historic (simulated) data for this simulation
     simdata <- OMsimdata[[isim]]
     # Use to overwrite the following values in the setupOM input (which was fit to real data) so simOM self-consistent
     obs_names <-  c("agg_catch","agg_indices", "catch_paa", "index_paa", "Ecov_obs", "obs", "obsvec") # Other input$data objects match original OM
     inputSimOM$data[obs_names] <- simdata[obs_names] # overwrite storage for this simulation input
-    inputSimOM$par <- setupOM$parList
+    #inputSimOM$par <- setupOM$parList
     # Fit OM to simulated data (rather than raw data as in setupOM)
     simOM <- fit_wham(inputSimOM, do.sdrep=F, do.osa=F, do.retro=T, do.proj=F, MakeADFun.silent=TRUE)
     
-    ##### Set up storage #####
+    ##### Set up storage for each isim #####
+    isim_Store <- NULL # List for storage
     advice <- rep(NA, nyear)
+    names(advice) <- paste0("iproj_",1:nyear)
+    
+    
+    
     
     ##### MISSING ADVICE FOR FIRST YEAR OF MSE #####
-    advice[1] <- 10000 # placeholder!!!!!!
+    advice[1:(1+freqEM-1)] <- 10000 # placeholder!!!!!!
     
     ##### Loop over projection years in simulation #####
     # Specify the number of historic (base) years to which projection is appended
@@ -341,6 +350,34 @@ plaiceMSE <- function(env_driver_OM = "None",
       # # Reset the OM
       # simOM <- fit_wham(projInput, n.newton=n.newton, do.sdrep=F, do.retro=F, do.osa=F, do.check=F, do.proj=F,
       #                MakeADFun.silent = TRUE, save.sdrep=FALSE, do.fit = F)
+      
+      ## Store OM SSB/F/R results
+      # Extract SSB 
+      Year <- c(asap3$dat$year1:(asap3$dat$year1+asap3$dat$n_years-1+iproj))
+      SSB <- resultOM$SSB[1:(hist_year+iproj)]
+      OM_SSB_F_R <- cbind(Year, SSB)
+      
+      # Full F
+      # mod = resultOM
+      # std = summary(mod$sdrep)
+      # years_full <- mod$years_full
+      # n_ages = mod$env$data$n_ages
+      # faa.ind <- which(rownames(std) == "log_FAA_tot")
+      # log.faa <- matrix(std[faa.ind,1], length(years_full), n_ages)
+      # faa.cv <- matrix(std[faa.ind,2], length(years_full), n_ages)
+      # age.full.f <- apply(log.faa,1, function(x) max(which(x == max(x))))
+      # full.f.ind = cbind(1:length(years_full), age.full.f)
+      # log.full.f <- log.faa[full.f.ind]
+      # full.f.cv <- faa.cv[full.f.ind]
+      # full.f = exp(log.full.f)
+      # ????? equivalent in simulated data? - maybe resultOM$FAA_tot?????
+      full.f = rep(100, (hist_year+iproj))
+      
+      # Recruitment
+      Recruit <- resultOM$NAA[1:(hist_year+iproj),1]
+      # Catch
+      Catch <- resultOM$pred_catch[1:(hist_year+iproj)]
+      OM_SSB_F_R <- cbind(OM_SSB_F_R, full.f, Recruit, Catch, "OM", iproj, isim) %>% as.data.frame()
       
       
       ##### Observation model #####
@@ -426,6 +463,8 @@ plaiceMSE <- function(env_driver_OM = "None",
       ecov_withoutEffect$how <- 0 # process & indices arguments are consistent with the OM settings
       # Updated input
       inputEM_withoutEnv <- prepare_wham_input(basic_info = inputEM_setup, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_withoutEnv", age_comp = "logistic-normal-miss0", ecov=ecov_withoutEffect)
+           # Warning: "Setting data$use_index_paa to 0 for index # and year # because not enough positive values"
+           # means that Albatross/Bigelow years split and input correctly using only years for which data available
       ## Fit EM to simulated data from OM with sdreport - originally without
       fit_withoutEnv <- fit_wham(inputEM_withoutEnv, do.sdrep=TRUE, do.osa=F, do.retro=T, do.proj=F, MakeADFun.silent=TRUE) 
       # Add OSA residual calculation for fit to aggregate indices and environmental data
@@ -434,7 +473,31 @@ plaiceMSE <- function(env_driver_OM = "None",
         # Remove paa data from model input object so OSA only calculated for aggregate index and Ecov (as in first few lines of make_osa_residuals())
         fitted_withoutEnv$input$data$obs <- fitted_withoutEnv$input$data$obs %>% filter(type != "indexpaa") %>% filter(type != "catchpaa")
         # Calculate OSA residual
-        modOSA_withoutEnv <- make_osa_residuals(fitted_withoutEnv)
+        # modOSA_withoutEnv <- make_osa_residuals(fitted_withoutEnv)
+      ## Store results
+        # Extract SSB (transform so not in log space)
+        temp = summary(fit_withoutEnv$sdrep )
+        temp = temp[rownames(temp) == "log_SSB",]
+        temp = exp(cbind(temp, temp[,"Estimate"] + qnorm(0.975)*cbind(-temp[,2],temp[,2])))/1000
+        withoutEnv_SSB_F_R <- cbind(c(asap3$dat$year1:(asap3$dat$year1+asap3$dat$n_years-1+iproj)), temp[,"Estimate"])
+        # Full F
+        mod = fit_withoutEnv
+        std = summary(mod$sdrep)
+        years_full <- mod$years_full
+        n_ages = mod$env$data$n_ages
+        faa.ind <- which(rownames(std) == "log_FAA_tot")
+        log.faa <- matrix(std[faa.ind,1], length(years_full), n_ages)
+        faa.cv <- matrix(std[faa.ind,2], length(years_full), n_ages)
+        age.full.f <- apply(log.faa,1, function(x) max(which(x == max(x))))
+        full.f.ind = cbind(1:length(years_full), age.full.f)
+        log.full.f <- log.faa[full.f.ind]
+        full.f.cv <- faa.cv[full.f.ind]
+        full.f = exp(log.full.f)
+        # Recruitment
+        recruit <- mod$rep$NAA[,1]
+        # Catch
+        catch <- exp(mod$rep$pred_log_catch)
+        withoutEnv_SSB_F_R <- cbind(withoutEnv_SSB_F_R, full.f, recruit, catch, "withoutEnv", iproj, isim) %>% as.data.frame()
         
       ### Do assessment with Env covariate (status quo)
       ## Update ecov object with additional years of data
@@ -452,7 +515,8 @@ plaiceMSE <- function(env_driver_OM = "None",
       ecov_withEffect$use_obs <- as.matrix(rep(TRUE, length(ecov_withEffect$year)), ncol=1)
       ecov_withEffect$lag <- env_lag
       ecov_withEffect$where <- stock_dynamic
-      ecov_withoutEffect$how <- 1 # process & indices arguments are consistent with the OM settings
+      ecov_withEffect$how <- 1 # process & indices arguments are consistent with the OM settings
+      ecov_withEffect$indices <- list(c(3,4)) # Only fall indices
       # Updated input
       inputEM_withEnv <- prepare_wham_input(basic_info = inputEM_setup, NAA_re = NAA_re, selectivity = sel_list, model_name = "EM_withEnv", age_comp = "logistic-normal-miss0", ecov=ecov_withEffect)
       ## Fit EM to simulated data from OM with sdreport - originally without
@@ -463,8 +527,32 @@ plaiceMSE <- function(env_driver_OM = "None",
         # Remove paa data from model input object so OSA only calculated for aggregate index and Ecov (as in first few lines of make_osa_residuals())
         fitted_withEnv$input$data$obs <- fitted_withEnv$input$data$obs %>% filter(type != "indexpaa") %>% filter(type != "catchpaa")
         # Calculate OSA residual
-        modOSA_withEnv <- make_osa_residuals(fitted_withEnv)
-      
+        # modOSA_withEnv <- make_osa_residuals(fitted_withEnv)
+      ## Store results
+        # Extract SSB (transform so not in log space)
+        temp = summary(fit_withEnv$sdrep )
+        temp = temp[rownames(temp) == "log_SSB",]
+        temp = exp(cbind(temp, temp[,"Estimate"] + qnorm(0.975)*cbind(-temp[,2],temp[,2])))/1000
+        withEnv_SSB_F_R <- cbind(c(asap3$dat$year1:(asap3$dat$year1+asap3$dat$n_years-1+iproj)), temp[,"Estimate"])
+        # Full F
+        mod = fit_withEnv
+        std = summary(mod$sdrep)
+        years_full <- mod$years_full
+        n_ages = mod$env$data$n_ages
+        faa.ind <- which(rownames(std) == "log_FAA_tot")
+        log.faa <- matrix(std[faa.ind,1], length(years_full), n_ages)
+        faa.cv <- matrix(std[faa.ind,2], length(years_full), n_ages)
+        age.full.f <- apply(log.faa,1, function(x) max(which(x == max(x))))
+        full.f.ind = cbind(1:length(years_full), age.full.f)
+        log.full.f <- log.faa[full.f.ind]
+        full.f.cv <- faa.cv[full.f.ind]
+        full.f = exp(log.full.f)
+        # Recruitment
+        recruit <- mod$rep$NAA[,1]
+        # Catch
+        catch <- exp(mod$rep$pred_log_catch)
+        withEnv_SSB_F_R <- cbind(withEnv_SSB_F_R, full.f, recruit, catch, "withEnv", iproj, isim) %>% as.data.frame()
+        
       ### Do assessment without Env covariate but with random effect (fit to env data but no effect)
       ## Update ecov object with additional years of data
       # Initialize object with OM settings
@@ -492,16 +580,47 @@ plaiceMSE <- function(env_driver_OM = "None",
         # Remove paa data from model input object so OSA only calculated for aggregate index and Ecov (as in first few lines of make_osa_residuals())
         fitted_withoutEnv_rand$input$data$obs <- fitted_withoutEnv_rand$input$data$obs %>% filter(type != "indexpaa") %>% filter(type != "catchpaa")
         # Calculate OSA residual
-        modOSA_withoutEnv_rand <- make_osa_residuals(fitted_withoutEnv_rand)
-      
+        # modOSA_withoutEnv_rand <- make_osa_residuals(fitted_withoutEnv_rand)
+      ## Store results
+        # Extract SSB (transform so not in log space)
+        temp = summary(fit_withoutEnv_rand$sdrep )
+        temp = temp[rownames(temp) == "log_SSB",]
+        temp = exp(cbind(temp, temp[,"Estimate"] + qnorm(0.975)*cbind(-temp[,2],temp[,2])))/1000
+        withoutEnv_rand_SSB_F_R <- cbind(c(asap3$dat$year1:(asap3$dat$year1+asap3$dat$n_years-1+iproj)), temp[,"Estimate"])
+        # Full F
+        mod = fit_withoutEnv_rand
+        std = summary(mod$sdrep)
+        years_full <- mod$years_full
+        n_ages = mod$env$data$n_ages
+        faa.ind <- which(rownames(std) == "log_FAA_tot")
+        log.faa <- matrix(std[faa.ind,1], length(years_full), n_ages)
+        faa.cv <- matrix(std[faa.ind,2], length(years_full), n_ages)
+        age.full.f <- apply(log.faa,1, function(x) max(which(x == max(x))))
+        full.f.ind = cbind(1:length(years_full), age.full.f)
+        log.full.f <- log.faa[full.f.ind]
+        full.f.cv <- faa.cv[full.f.ind]
+        full.f = exp(log.full.f)
+        # Recruitment
+        recruit <- mod$rep$NAA[,1]
+        # Catch
+        catch <- exp(mod$rep$pred_log_catch)
+        withoutEnv_rand_SSB_F_R <- cbind(withoutEnv_rand_SSB_F_R, full.f, recruit, catch, "withoutEnv_rand", iproj, isim) %>% as.data.frame()
+        
+      # Finish storing SSB-F-R results
+      temp_SSB_F_R <- rbind(withoutEnv_SSB_F_R, withEnv_SSB_F_R, withoutEnv_rand_SSB_F_R, OM_SSB_F_R)
+      colnames(temp_SSB_F_R) <- c("Year", "SSB", "F", "R", "Catch", "model", "iproj", "isim")
+      rownames(temp_SSB_F_R) <- NULL # Don't keep rownames from SSB 
+      isim_Store$SSB_F_R <- rbind(isim_Store$SSB_F_R, temp_SSB_F_R)
+        
       ### Compare diagnostics for the three runs
       # Set up storage for diagnostics 
-      compareEM <- matrix(rep(NA,6*3), ncol=3)
-      colnames(compareEM) <- c("withEnv", "withoutEnv", "withoutEnv_rand")
-      rownames(compareEM) <- c("parsimony", "AIC", "deltaAIC", "mohns_rhoSSB", "mohns_rhoFbar", "mohns_rhoR")
+      compareEM <- matrix(rep(NA,8*3), nrow=3)
+      rownames(compareEM) <- c("withEnv", "withoutEnv", "withoutEnv_rand")
+      colnames(compareEM) <- c("parsimony", "AIC", "deltaAIC", "mohns_rhoSSB", "mohns_rhoFbar", "mohns_rhoR", "iproj","pickName")
+      compareEM[,"iproj"] <- iproj
       
       # Parsimony (score only to pick when there are multiple equivalent models and a tie between them)
-      compareEM["parsimony", ] <- c(2,0,1) # higher score = less parsimonious model
+      compareEM[,"parsimony"] <- c(2,0,1) # higher score = less parsimonious model
       # AIC
       # mohn's rho
       # (not in table yet) want OSA residuals for only aggregate fits - could use to assess normality (AIC and normality needs to be better for at least 1-2 indices)
@@ -510,36 +629,36 @@ plaiceMSE <- function(env_driver_OM = "None",
         # with environmental covariate
         k_withEnv <- length(fit_withEnv$opt$par)
         fit_withEnv$AIC <- 2*(fit_withEnv$opt$obj + k_withEnv)[1]
-        compareEM["AIC", "withEnv"] <- fit_withEnv$AIC
+        compareEM["withEnv", "AIC"] <- fit_withEnv$AIC
         # without environmental covariate
         k_withoutEnv <- length(fit_withoutEnv$opt$par)
         fit_withoutEnv$AIC <- 2*(fit_withoutEnv$opt$obj + k_withoutEnv)[1]
-        compareEM["AIC", "withoutEnv"] <- fit_withoutEnv$AIC
+        compareEM["withoutEnv", "AIC"] <- fit_withoutEnv$AIC
         # without environmental covariate BUT with random effect
         k_withoutEnv_rand <- length(fit_withoutEnv_rand$opt$par)
         fit_withoutEnv_rand$AIC <- 2*(fit_withoutEnv_rand$opt$obj + k_withoutEnv_rand)[1]
-        compareEM["AIC", "withoutEnv_rand"] <- fit_withoutEnv_rand$AIC
+        compareEM["withoutEnv_rand", "AIC"] <- fit_withoutEnv_rand$AIC
         
       # Calculate delta AIC (absolute difference)
-        minAIC <- min(compareEM["AIC",])
-        compareEM["deltaAIC",] <- abs(compareEM["AIC",]) - abs(minAIC)
+        minAIC <- min(compareEM[,"AIC"])
+        compareEM[,"deltaAIC"] <- abs(compareEM[,"AIC"]) - abs(minAIC)
         
       # Calculate mohn's rho values
         # with environmental covariate
         fit_withEnv$mohns_rho = mohns_rho(fit_withEnv)
-        compareEM[2:4,"withEnv"] <- fit_withEnv$mohns_rho[1:3]
+        compareEM["withEnv", 4:6] <- fit_withEnv$mohns_rho[1:3]
         # without environmental covariate
         fit_withoutEnv$mohns_rho = mohns_rho(fit_withoutEnv)
-        compareEM[2:4,"withoutEnv"] <- fit_withoutEnv$mohns_rho[1:3]
+        compareEM["withoutEnv", 4:6] <- fit_withoutEnv$mohns_rho[1:3]
         # without environmental covariate BUT with random effect
         fit_withoutEnv_rand$mohns_rho = mohns_rho(fit_withoutEnv_rand)
-        compareEM[2:4,"withoutEnv_rand"] <- fit_withoutEnv_rand$mohns_rho[1:3]
+        compareEM["withoutEnv_rand", 4:6] <- fit_withoutEnv_rand$mohns_rho[1:3]
       
       ## Pick between EMs, select the model with the larger number of smaller values
       # Check if delta AIC is < 2 (and not 0), if so pick more parsimonious model
-      checkAIC <- compareEM["deltaAIC",] <= 2 & compareEM["deltaAIC",] != 0
+      checkAIC <- compareEM[,"deltaAIC"] <= 2 & compareEM[,"deltaAIC"] != 0
       if("TRUE" %in% checkAIC){ # At least one model is within 2 of the smallest AIC
-        equivalentMod <- compareEM[, which(compareEM["deltaAIC",] <= 2)] # Look at all equivalent models & pick based on best overall performance
+        equivalentMod <- compareEM[which(compareEM["deltaAIC",] <= 2),] # Look at all equivalent models & pick based on best overall performance
         
         # Take absolute value of mohns_rho values
         equivalentMod["mohns_rhoSSB",] <- abs(equivalentMod["mohns_rhoSSB",])
@@ -565,7 +684,7 @@ plaiceMSE <- function(env_driver_OM = "None",
         
         # If 2+ models tied for best, reset pickName to most parsimonious of the tied models
         if(length(pickName) > 1){ 
-          pickName <- which(compareEM["parsimony",pickName] == min(compareEM["parsimony",pickName])) %>% names()
+          pickName <- which(compareEM[pickName,"parsimony"] == min(compareEM[pickName,"parsimony"])) %>% names()
         } 
         # Now pick corresponding EM
         if(pickName == "withEnv"){
@@ -578,7 +697,7 @@ plaiceMSE <- function(env_driver_OM = "None",
         
         # End if statement for selecting best from equivalent models
       } else{ # Pick best model based on smallest AIC score
-        pickName <- names(which(compareEM["deltaAIC",] == 0))
+        pickName <- names(which(compareEM[,"deltaAIC"] == 0))
         
         # Now pick corresponding EM
         if(pickName == "withEnv"){
@@ -590,6 +709,8 @@ plaiceMSE <- function(env_driver_OM = "None",
         }
       }  
       
+      # Store name of selected model
+      compareEM[,"pickName"] <- pickName
       
       ##### Mngmt #####
       # Project the picked EM for 5 years under average F from the last 5 years
@@ -602,12 +723,43 @@ plaiceMSE <- function(env_driver_OM = "None",
                                                # Default continues env process (random walk/AR1) but could use env in last year for projection or average over avg.yrs
                               MakeADFun.silent = TRUE)
       # Generate advice using average projected catch over 5 years of fishing at F40 (assume no implementation error)
-      advice[iproj] <- EM_proj$rep$pred_catch[length(EM_proj$years) + 1:freqEM]
+      advice[iproj:(iproj+freqEM-1)] <- EM_proj$rep$pred_catch[length(EM_proj$years) + 1:freqEM]
       
+      # Store annually updated isim results
+      isim_Store$compareEM <- rbind(isim_Store$compareEM, as.data.frame(compareEM)) # Append iproj time step's AIC/Mohn's rho
+      
+      # Store EM & OM ecov predictions
+      store_ecov_withEnv <- cbind(fit_withEnv$rep$Ecov_x, iproj, isim, "withEnv") %>% as.data.frame()
+      store_ecov_withoutEnv <- cbind(fit_withoutEnv$rep$Ecov_x, iproj, isim, "withoutEnv") %>% as.data.frame()
+      store_ecov_withoutEnv_rand <- cbind(fit_withoutEnv_rand$rep$Ecov_x, iproj, isim, "withoutEnv_rand") %>% as.data.frame()
+      store_ecov_OM <- cbind(resultOM$rep$Ecov_x, iproj, isim, "OM") %>% as.data.frame() #!!! confirm that this works
+      store_ecov <- rbind(store_ecov_withEnv, store_ecov_withoutEnv, store_ecov_withoutEnv_rand)
+      colnames(store_ecov) <- c("Ecov_pred", "iproj", "isim", "model")
+      isim_Store$ecov_Est <- rbind(isim_Store$ecov_Est, store_ecov)
       
     } # End loop over years
     
+    # Store final isim results
+    isim_Store$advice <- advice # Annually updated storage vector so only need to store at end of projection
+    
+    # Store relevant EM/OM settings (full settings stored in simInputs.txt file)
+    isim_Store$env_driver_OM <- env_driver_OM
+    isim_Store$env_driver_EM <- env_driver_EM
+    isim_Store$env_noise <- env_noise
+    isim_Store$stock_dynamic <- stock_dynamic
+    isim_Store$forcing <- forcing
+    isim_Store$freqEM <- freqEM
+    isim_Store$nyear <- nyear
+    isim_Store$startproj <- asap3$dat$year1+asap3$dat$n_years # First year of projection
+    
+    
+    # Store all results for isim in mse_Store object
+    mse_Store[[isim]] <- isim_Store
+    
   } # End loop over simulations
+  
+  # Write mse_Store results to file
+  saveRDS(mse_Store, file=paste(filelocation, "simResults.rds", sep="/"))
   
 } # End function definition
 

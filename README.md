@@ -1,5 +1,17 @@
 # PlaiceWG2021
 
+### IMPORTANT NOTE FOR CONTRIBUTORS
+**This repo was initialized with git lfs to track .png files, but has since reached the data quota for lfs. For this reason you may encounter an error that "This repository is over its data quota" that may hinder your ability to do one of the following:**
+* **Cloning this repository**
+* **Forking this repository**
+* **Trying to commit a new .png file to this repository**
+
+**As of 8/13/22 there is not a straightforward way to disengage this repo from git lfs to resolve these errors without risking damage to the git history of this repository or its forks. If you wish to use any of the files in this repo as the starting point for future work DO NOT CLONE OR FORK THE REPO, instead we recommend the following steps:**
+* **First download the file(s) that are relevant to your work (i.e. not via a clone)**
+* **Then check that the downloaded files do not include a .gitattributes file (which sets up git lfs), if a .gitattributes file was downloaded delete it**
+* **Finally, add the downloaded files to a new repo without a .gitattributes file and reference this repo as a source somewhere in your documentation**
+
+### Overview
 This repository holds code associated with work for the American Plaice 2021 Working Group ToR4. Preliminary files correspond to models fit to VPA data prior to final WG ToR2&3 data decisions. Preliminary data may not match the data used in VPA-WHAM bridge runs and these preliminary analyses should be viewed as a WHAM learning exercise. Files used in WG analysis include "WG" in the description below.
 
 ### wham_setup
